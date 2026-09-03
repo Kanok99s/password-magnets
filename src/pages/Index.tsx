@@ -1,78 +1,116 @@
-// PasswordMagnets - single-page project presentation site.
-//
-// Intended to be deployed as a lightweight "project page" under a personal /
-// resume website. Sections live in src/components/landing/ and are assembled
-// here with a sticky nav and a footer.
+// PasswordMagnets - a single-page project summary, small enough to host under
+// a personal/resume website. Intro line, one combined "what it does / how
+// it's built" section, a product preview, and a short footer.
 
-import { NAV_LINKS, Wordmark } from "@/components/landing/content";
-import HeroSection from "@/components/landing/hero-section";
-import FeaturesSection from "@/components/landing/features-section";
-import SecuritySection from "@/components/landing/security-section";
-import ArchitectureSection from "@/components/landing/architecture-section";
-import StackSection from "@/components/landing/stack-section";
+import VaultWindowPreview from "@/components/landing/vault-preview";
+
+const DID = [
+  "Every login lives in one locally encrypted vault file - no cloud, no plaintext.",
+  "Search ranks matches as you type, and secrets stay masked until you copy them.",
+  "One-click copy auto-clears the clipboard after 20 seconds.",
+  "The vault locks itself after inactivity or when the file changes externally.",
+];
+
+const HOW = [
+  "C++20 and Qt6 Widgets, built with CMake presets for Linux, macOS, and Windows.",
+  "Argon2id key derivation and XChaCha20-Poly1305 encryption via libsodium.",
+  "The hash table, search matcher, and JSON save pipeline are written from scratch.",
+  "Four headless test suites run in GitHub Actions CI on every commit.",
+];
+
+const STACK = [
+  "C++20",
+  "Qt 6 Widgets",
+  "libsodium",
+  "nlohmann/json",
+  "CMake + CTest",
+  "GitHub Actions",
+];
 
 export default function Index() {
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900 antialiased">
-      <header className="sticky top-0 z-20 border-b border-slate-200/70 bg-slate-50/80 backdrop-blur">
-        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-3.5">
-          <a href="#top" aria-label="Back to top">
-            <Wordmark />
-          </a>
-          <nav className="hidden items-center gap-7 md:flex">
-            {NAV_LINKS.map((link) => (
-              <a
-                key={link.href}
-                href={link.href}
-                className="text-sm font-medium text-slate-600 transition-colors hover:text-slate-900"
-              >
-                {link.label}
-              </a>
-            ))}
-          </nav>
-          <a
-            href="#features"
-            className="rounded-full bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-indigo-600/25 transition-colors hover:bg-indigo-500"
-          >
-            Overview
-          </a>
+      <main className="mx-auto w-full max-w-4xl px-6 pb-16 pt-14 sm:pt-20">
+        {/* Intro */}
+        <header className="text-center">
+          <p className="font-mono text-xs font-medium uppercase tracking-[0.2em] text-indigo-600">
+            Portfolio project · C++ / Qt
+          </p>
+          <h1 className="mt-4 font-display text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl">
+            PasswordMagnets
+          </h1>
+          <p className="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-slate-600">
+            A cross-platform desktop password manager written from scratch. Every
+            login is sealed inside a single file on your machine - the crypto,
+            search engine, and interface are all my own code.
+          </p>
+        </header>
+
+        <div className="mt-12">
+          <VaultWindowPreview />
         </div>
-      </header>
 
-      <main id="top">
-        <HeroSection />
-        <FeaturesSection />
-        <SecuritySection />
-        <ArchitectureSection />
-        <StackSection />
-      </main>
+        {/* One combined "what it does / how it's built" section */}
+        <section className="mt-16 grid items-start gap-5 sm:grid-cols-2">
+          <div className="rounded-2xl border border-slate-200 bg-white p-6">
+            <h2 className="flex items-center gap-2 text-base font-semibold text-slate-900">
+              <span className="h-2 w-2 rounded-full bg-indigo-600" />
+              What it does
+            </h2>
+            <ul className="mt-4 space-y-3">
+              {DID.map((item) => (
+                <li
+                  key={item}
+                  className="flex items-start gap-3 text-sm leading-relaxed text-slate-600"
+                >
+                  <span
+                    aria-hidden="true"
+                    className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-indigo-300"
+                  />
+                  {item}
+                </li>
+              ))}
+            </ul>
+          </div>
 
-      <footer className="border-t border-slate-200 bg-slate-50 px-6 py-10">
-        <div className="mx-auto flex w-full max-w-6xl flex-col items-center justify-between gap-5 sm:flex-row">
-          <Wordmark />
-          <nav className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
-            {NAV_LINKS.map((link) => (
-              <a
-                key={link.href}
-                href={link.href}
-                className="text-xs font-medium text-slate-500 transition-colors hover:text-slate-900"
-              >
-                {link.label}
-              </a>
-            ))}
-            <a
-              href="#top"
-              className="text-xs font-medium text-indigo-600 transition-colors hover:text-indigo-500"
+          <div className="rounded-2xl border border-slate-200 bg-white p-6">
+            <h2 className="flex items-center gap-2 text-base font-semibold text-slate-900">
+              <span className="h-2 w-2 rounded-full bg-indigo-600" />
+              How it's built
+            </h2>
+            <ul className="mt-4 space-y-3">
+              {HOW.map((item) => (
+                <li
+                  key={item}
+                  className="flex items-start gap-3 text-sm leading-relaxed text-slate-600"
+                >
+                  <span
+                    aria-hidden="true"
+                    className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-indigo-300"
+                  />
+                  {item}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+
+        {/* Tech stack chips */}
+        <div className="mt-10 flex flex-wrap items-center justify-center gap-2">
+          {STACK.map((chip) => (
+            <span
+              key={chip}
+              className="rounded-full border border-slate-200 bg-white px-3 py-1.5 font-mono text-xs text-slate-600"
             >
-              Back to top
-            </a>
-          </nav>
+              {chip}
+            </span>
+          ))}
         </div>
-        <p className="mt-6 text-center text-[11px] leading-relaxed text-slate-400">
-          Built with C++20, Qt6 Widgets, and libsodium - one project page in a
-          personal portfolio.
-        </p>
-      </footer>
+
+        <footer className="mt-14 border-t border-slate-200 pt-6 text-center text-xs text-slate-400">
+          PasswordMagnets · a personal portfolio project
+        </footer>
+      </main>
     </div>
   );
 }

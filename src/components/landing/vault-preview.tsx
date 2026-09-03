@@ -2,7 +2,14 @@
 // screenshots exist yet, so this markup stands in for one: a title bar, a
 // live-search row, the entry table with masked secrets, and the action bar.
 
-import { MOCK_ROWS } from "./content";
+// Decorative rows shown inside the CSS-drawn window. The bullet counts are
+// arbitrary - the real app mirrors the true password length.
+const MOCK_ROWS: { service: string; username: string; dots: number }[] = [
+  { service: "GitHub", username: "octocat", dots: 12 },
+  { service: "AWS Console", username: "admin", dots: 16 },
+  { service: "Vercel", username: "you@resume.dev", dots: 8 },
+  { service: "Spotify", username: "listener_42", dots: 10 },
+];
 
 function SearchIcon() {
   return (
