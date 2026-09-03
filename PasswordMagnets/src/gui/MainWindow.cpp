@@ -1,17 +1,26 @@
 // MainWindow implementation - programmatic Qt6 Widgets UI (no .ui files).
 #include "gui/MainWindow.hpp"
 
+#include <QAbstractButton>
 #include <QAbstractItemView>
+#include <QAction>
 #include <QApplication>
 #include <QClipboard>
 #include <QCloseEvent>
 #include <QCryptographicHash>
+#include <QDateTime>
+#include <QDir>
+#include <QFileDialog>
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QHideEvent>
+#include <QInputDialog>
 #include <QItemSelectionModel>
+#include <QKeySequence>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMenu>
+#include <QMenuBar>
 #include <QMessageBox>
 #include <QMouseEvent>
 #include <QPushButton>
@@ -130,6 +139,22 @@ MainWindow::MainWindow(storage::VaultStore vault, QString masterPassword,
 }
 
 void MainWindow::buildUi() {
+  // --- Menu bar: encrypted backup export / import. -------------------------
+  auto* const backupMenu = menuBar()->addMenu(QStringLiteral("Backup"));
+  QAction* const exportAction =
+      backupMenu->addAction(QStringLiteral("Export Backup..."), this,
+                            &MainWindow::exportBackup,
+                            QKeySequence(QStringLiteral("Ctrl+E")));
+  exportAction->setStatusTip(QStringLiteral(
+      "Write an encrypted snapshot of the current vault to a file"));
+  QAction* const importAction =
+      backupMenu->addAction(QStringLiteral("Import Backup..."), this,
+                            &MainWindow::importBackup,
+                            QKeySequence(QStringLiteral("Ctrl+I")));
+  importAction->setStatusTip(QStringLiteral(
+      "Load an encrypted backup and merge or replace the current vault"));
+  statusBar();  // create early so the status tips above have somewhere to land
+
   auto* const central = new QWidget(this);
   setCentralWidget(central);
 
@@ -395,6 +420,130 @@ void MainWindow::deleteEntry() {
   statusBar()->showMessage(QStringLiteral("Deleted \"%1\".")
                                .arg(QString::fromStdString(entry.service)),
                            3000);
+}
+
+void MainWindow::exportBackup() {
+  // Suggest a timestamped filename so a typical "make a snapshot now" click
+  // needs no typing; the dialog still lets the user pick any path/filename.
+  const QString suggested = QStringLiteral("passwordmagnets-backup-%1.bin")
+                                .arg(QDateTime::currentDateTime().toString(
+                                    QStringLiteral("yyyyMMdd-HHmmss")));
+  const QString path = QFileDialog::getSaveFileName(
+      this, QStringLiteral("Export Backup"), QDir::home().filePath(suggested),
+      QStringLiteral("Encrypted vault backup (*.bin)"));
+  if (path.isEmpty()) return;  // cancelled
+
+  // Re-uses saveToFile(): the snapshot is a normal encrypted vault file with
+  // the same layout, freshly keyed with a random salt + nonce under the
+  // session master password.
+  if (vault_.saveToFile(path.toStdString(), masterPassword_.toStdString())) {
+    statusBar()->showMessage(
+        QStringLiteral("Backup exported to %1.")
+            .arg(QDir::toNativeSeparators(path)),
+        5000);
+    return;
+  }
+  QMessageBox::critical(this, QStringLiteral("Export Failed"),
+                        QStringLiteral("The backup could not be written. The "
+                                       "destination may not be writable."));
+}
+
+void MainWindow::importBackup() {
+  const QString path = QFileDialog::getOpenFileName(
+      this, QStringLiteral("Import Backup"), QDir::homePath(),
+      QStringLiteral("Encrypted vault backup (*.bin);;All files (*)"));
+  if (path.isEmpty()) return;  // cancelled
+
+  bool accepted = false;
+  QString password = QInputDialog::getText(
+      this, QStringLiteral("Import Backup"),
+      QStringLiteral("Enter the master password that unlocks this backup:"),
+      QLineEdit::Password, QString(), &accepted);
+  if (!accepted) return;  // cancelled
+  if (password.isEmpty()) {
+    password.clear();
+    QMessageBox::warning(
+        this, QStringLiteral("Import Backup"),
+        QStringLiteral("A master password is required to decrypt the backup."));
+    return;
+  }
+
+  // Decrypt into a throwaway store first, so a wrong password or a corrupt
+  // file can never clobber the open vault. Only once the whole file validates
+  // do we touch the live store below.
+  storage::VaultStore backup;
+  const bool loaded =
+      backup.loadFromFile(path.toStdString(), password.toStdString());
+  password.clear();  // drop the transient copy as soon as it has been used
+  if (!loaded) {
+    QMessageBox::critical(
+        this, QStringLiteral("Import Failed"),
+        QStringLiteral("The backup could not be decrypted. The master "
+                       "password may be wrong, or the file is not a valid "
+                       "vault backup."));
+    return;
+  }
+
+  const int count = static_cast<int>(backup.size());
+  QMessageBox choice(this);
+  choice.setIcon(QMessageBox::Question);
+  choice.setWindowTitle(QStringLiteral("Import Backup"));
+  choice.setText(QStringLiteral("The backup contains %1 %2. How should it be "
+                                "applied to the open vault?")
+                     .arg(count)
+                     .arg(count == 1 ? QStringLiteral("entry")
+                                     : QStringLiteral("entries")));
+  choice.setInformativeText(
+      QStringLiteral("Merge adds the backup's entries, and entries that "
+                     "already exist are overwritten by the backup.\n"
+                     "Replace discards the current entries first.\n"
+                     "Either way the vault is saved to disk immediately."));
+  auto* const mergeButton =
+      choice.addButton(QStringLiteral("Merge"), QMessageBox::AcceptRole);
+  auto* const replaceButton =
+      choice.addButton(QStringLiteral("Replace"), QMessageBox::AcceptRole);
+  auto* const cancelButton =
+      choice.addButton(QStringLiteral("Cancel"), QMessageBox::RejectRole);
+  choice.setDefaultButton(mergeButton);  // non-destructive default
+  choice.exec();
+
+  const QAbstractButton* const clicked = choice.clickedButton();
+  if (clicked == nullptr || clicked == cancelButton) return;  // cancelled
+
+  if (clicked == replaceButton) {
+    // backup already holds the fully validated contents of the file, so move
+    // it wholesale: no re-serialization and no per-entry copies.
+    vault_ = std::move(backup);
+    persist();
+    refreshTable();
+    statusBar()->showMessage(
+        QStringLiteral("Vault replaced with backup (%1 %2).")
+            .arg(count)
+            .arg(count == 1 ? QStringLiteral("entry")
+                            : QStringLiteral("entries")),
+        5000);
+    return;
+  }
+
+  // Merge: walk the backup in deterministic (alphabetical) order. New service
+  // names are added; on a collision the backup's value wins (set() upserts).
+  int added = 0;
+  int overwritten = 0;
+  for (const storage::Entry& e : backup.allEntries()) {
+    if (vault_.contains(e.service)) {
+      ++overwritten;
+    } else {
+      ++added;
+    }
+    vault_.set(e);
+  }
+  persist();
+  refreshTable();
+  statusBar()->showMessage(
+      QStringLiteral("Merged backup into vault (%1 added, %2 overwritten).")
+          .arg(added)
+          .arg(overwritten),
+      5000);
 }
 
 void MainWindow::copyPassword(int row) {

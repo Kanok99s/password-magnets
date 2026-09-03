@@ -5,7 +5,9 @@
 //     everything via allEntries() when empty) on every keystroke,
 //   * a QTableWidget with Service | Username | Password | Actions columns,
 //     whole-row selection and stretched columns,
-//   * Add / Edit / Delete / Lock Vault actions, plus a per-row Copy button.
+//   * Add / Edit / Delete / Lock Vault actions, plus a per-row Copy button,
+//   * a "Backup" menu bar with Export Backup... and Import Backup...
+//     (encrypted snapshots via the vault's file format).
 //
 // The window owns a copy of the vault plus the credentials that unlock it, so
 // every mutation can be written back to the encrypted file immediately
@@ -85,6 +87,17 @@ class MainWindow final : public QMainWindow {
   void editEntry();
   void deleteEntry();
   void copyPassword(int row);
+
+  // --- Backup (Export / Import) --------------------------------------------
+  // "Export Backup...": write an encrypted snapshot of the current vault to a
+  // file the user picks. Re-uses saveToFile(), which re-keys the copy with a
+  // fresh salt + nonce under the session master password.
+  void exportBackup();
+  // "Import Backup...": decrypt a file the user picks using that file's own
+  // master password into a throwaway VaultStore, then either merge the result
+  // into the open vault (backup values win on duplicate service names) or
+  // replace the vault contents. The merged vault is persisted immediately.
+  void importBackup();
 
   // --- Security helpers ------------------------------------------------------
   void noteActivity();    // a keypress/mouse event: restart the idle timer

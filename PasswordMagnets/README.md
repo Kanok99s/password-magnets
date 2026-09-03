@@ -31,6 +31,11 @@ the GitHub Actions workflow.
 - **Inactivity auto-lock** — the vault locks itself after 5 minutes without
   keyboard/mouse input, wiping plaintext rows, the in-memory vault copy and
   any watched clipboard secret before returning to the login dialog.
+- **Encrypted backups** — a "Backup" menu on the vault window exports an
+  encrypted snapshot of the current vault to any file (`Export Backup...`),
+  and imports one back (`Import Backup...`) after decrypting it with its own
+  master password, either merging it into the open vault (backup values win on
+  duplicate service names) or replacing the vault wholesale.
 - **Secret hygiene** — derived keys are non-copyable and wiped with
   `sodium_memzero()`; decrypted buffers are wiped on every exit path.
 - **Headless persistence self-check** — `passwordmagnets --checkpoint` runs a
@@ -288,7 +293,9 @@ The test suite (`ctest`) covers four checks, all headless:
   is stored at `QStandardPaths::AppDataLocation` (e.g. `%APPDATA%`, `~/Library`,
   `~/.local/share`) under `vault.bin`. After unlocking, the vault window offers
   live search, Add/Edit/Delete, per-row Copy (auto-clearing after 20 s) and
-  Lock — manually, or automatically after 5 minutes of inactivity.
+  Lock — manually, or automatically after 5 minutes of inactivity. The
+  "Backup" menu exports the vault as an encrypted snapshot and imports a
+  `.bin` backup back (merge or replace).
 - **`passwordmagnets --checkpoint`** — the headless persistence self-check used
   by `vault_checkpoint`. Saves a seeded vault, reloads it, and verifies that a
   wrong password and a missing file fail gracefully without corrupting the
