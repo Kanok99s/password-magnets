@@ -1,0 +1,47 @@
+# Continuous integration for PasswordMagnets.
+#
+# Triggered on every push and pull request. Installs the project's native
+# dependencies from the Ubuntu archive (Qt6 Widgets, libsodium, nlohmann/json),
+# configures a Release build with CMake + Ninja via the project presets, builds
+# the executable, and runs the full CTest suite (including the headless
+# --checkpoint persistence self-check, so no display server is required).
+
+name: build
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Ubuntu (Qt6 + libsodium + nlohmann-json)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            cmake \
+            ninja-build \
+            qt6-base-dev \
+            libsodium-dev \
+            nlohmann-json3-dev
+
+      - name: Configure (Release, Ninja)
+        working-directory: PasswordMagnets
+        run: cmake --preset release
+
+      - name: Build
+        working-directory: PasswordMagnets
+        run: cmake --build --preset release
+
+      - name: Run tests
+        working-directory: PasswordMagnets
+        run: ctest --preset release --output-on-failure

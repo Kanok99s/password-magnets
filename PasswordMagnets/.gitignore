@@ -1,13 +1,73 @@
-# CMake output
+# ---------------------------------------------------------------------------
+# PasswordMagnets - generated and machine-specific files
+# ---------------------------------------------------------------------------
+
+# --- CMake / Ninja build output ---------------------------------------------
 /build/
 /out/
-
-# IDE / editor files
-.vscode/
-.idea/
-*.user
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+Makefile
+build.ninja
+rules.ninja
+*.ninja
+.ninja_deps
+.ninja_log
+compile_commands.json
 CMakeUserPresets.json
 
-# OS noise
+# --- Qt6 generated sources (AUTOMOC / AUTOUIC / AUTORCC, qmake) ------------
+moc_*.cpp
+moc_*.h
+qrc_*.cpp
+ui_*.h
+*.moc
+.qmake.stash
+.qmake.cache
+
+# --- C/C++ objects, libraries and executables ------------------------------
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+*.pdb
+*.ilk
+*.exp
+*.gcda
+*.gcno
+*.profraw
+*.profdata
+*.gcov
+*.stackdump
+core
+core.*
+vgcore.*
+
+# --- Visual Studio / MSVC ----------------------------------------------------
+.vs/
+*.suo
+*.user
+*.vcxproj.user
+*.VC.db
+*.VC.opendb
+*.ipch
+*.tlog
+
+# --- Editors & IDEs ----------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# --- OS noise -----------------------------------------------------------------
 .DS_Store
 Thumbs.db
+desktop.ini
