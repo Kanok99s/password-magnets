@@ -53,6 +53,8 @@ add_library(passwordmagnets_core STATIC
   src/crypto/sodium.cpp
   src/crypto/CryptoEngine.cpp
   src/crypto/CryptoEngine.hpp
+  src/storage/VaultStore.cpp
+  src/storage/VaultStore.hpp
 )
 add_library(PasswordMagnets::core ALIAS passwordmagnets_core)
 
