@@ -1,0 +1,9 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg/master/scripts/vcpkg.schema.json",
+  "name": "passwordmagnets",
+  "version": "0.1.0",
+  "dependencies": [
+    "libsodium",
+    "nlohmann-json"
+  ]
+}

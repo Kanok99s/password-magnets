@@ -1,0 +1,7 @@
+[requires]
+libsodium/1.0.20
+nlohmann_json/3.11.3
+
+[generators]
+CMakeDeps
+CMakeToolchain

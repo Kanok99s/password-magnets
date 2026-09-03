@@ -1,0 +1,110 @@
+# PasswordMagnets
+
+Cross-platform **C++20** scaffold for a password manager, built with CMake.
+It links [libsodium](https://doc.libsodium.org/) and
+[nlohmann/json](https://github.com/nlohmann/json) through standard
+`find_package()` calls, so the same build works with **Vcpkg**, **Conan**,
+and system package managers (**apt** / **brew**) on Linux, macOS, and Windows.
+
+## Layout
+
+```
+PasswordMagnets/
+├── CMakeLists.txt              # targets, dependencies, install()/CPack
+├── CMakePresets.json           # debug / release / windows-msvc presets
+├── conanfile.txt               # Conan 2 recipe (CMakeDeps + CMakeToolchain)
+├── vcpkg.json                  # Vcpkg manifest mode
+├── cmake/
+│   └── Libsodium.cmake         # find_package + pkg-config fallback for libsodium
+├── include/
+│   └── passwordmagnets/
+│       └── crypto/sodium.hpp   # public headers (installed)
+├── src/
+│   ├── main.cpp                # entry point: startup message + sodium_init()
+│   ├── crypto/                 # libsodium-backed crypto implementation
+│   ├── storage/                # future: encrypted vault storage
+│   └── gui/                    # future: desktop UI
+└── tests/
+    ├── CMakeLists.txt
+    └── sodium_smoke.cpp        # CTest: verifies sodium_init() succeeds
+```
+
+## Requirements
+
+- A C++20 compiler (GCC >= 10, Clang >= 12, MSVC >= 19.29 / VS 2022)
+- CMake >= 3.20
+- libsodium and nlohmann/json (installed via any package manager below)
+
+## Installing dependencies
+
+### apt (Debian / Ubuntu)
+
+```sh
+sudo apt install build-essential cmake ninja-build pkg-config \
+     libsodium-dev nlohmann-json3-dev
+```
+
+### Homebrew (macOS)
+
+```sh
+brew install cmake ninja pkgconf libsodium nlohmann-json
+```
+
+### Vcpkg (manifest mode picks up `vcpkg.json` automatically)
+
+```sh
+export VCPKG_ROOT=/path/to/vcpkg
+cmake --preset debug \
+      -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake
+```
+
+### Conan 2 (`conanfile.txt` included)
+
+```sh
+conan install . --output-folder=build/conan --build=missing
+cmake --preset debug \
+      -DCMAKE_TOOLCHAIN_FILE=build/conan/conan_toolchain.cmake
+```
+
+## Building, testing, running
+
+```sh
+cmake --preset debug
+cmake --build --preset debug
+ctest --preset debug            # runs the sodium_smoke test
+./build/debug/passwordmagnets   # prints startup message, exits 0 when libsodium is ready
+```
+
+On Windows use `--preset windows-msvc` (Visual Studio 2022).
+
+## Installing and packaging
+
+```sh
+cmake --install build/debug --prefix /desired/prefix
+cpack --config build/debug/CPackConfig.cmake     # produces ZIP/TGZ archives
+```
+
+`install()` rules cover the `PasswordMagnets::core` static library, the
+`passwordmagnets` executable, and the public headers under
+`include/passwordmagnets/`.
+
+## How libsodium is located
+
+Different ecosystems install libsodium differently, so
+`cmake/Libsodium.cmake` probes in order and stops at the first hit:
+
+| Source                 | What is available                          | Resolved target     |
+| ---------------------- | ------------------------------------------ | ------------------- |
+| Vcpkg                  | CMake config (`libsodiumConfig.cmake`)     | `libsodium::sodium` |
+| Conan (CMakeDeps)      | CMake config (`libsodium-config.cmake`)    | `libsodium::libsodium` |
+| Upstream/other install | CMake config                               | `libsodium::sodium` / `sodium` |
+| apt / brew             | only `libsodium.pc` (no CMake config)      | `PkgConfig::SODIUM_PC` |
+
+`nlohmann_json` ships a CMake package config on every ecosystem, so a single
+`find_package(nlohmann_json CONFIG REQUIRED)` suffices there.
+
+## Adding code
+
+- New **public API** goes in `include/passwordmagnets/...` and is installed.
+- New **implementations** go in `src/crypto/`, `src/storage/`, or `src/gui/`
+  and are added to the `passwordmagnets_core` sources in `CMakeLists.txt`.

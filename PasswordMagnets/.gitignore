@@ -1,0 +1,13 @@
+# CMake output
+/build/
+/out/
+
+# IDE / editor files
+.vscode/
+.idea/
+*.user
+CMakeUserPresets.json
+
+# OS noise
+.DS_Store
+Thumbs.db
