@@ -1,6 +1,10 @@
 [requires]
 libsodium/1.0.20
 nlohmann_json/3.11.3
+# Qt6 (find_package(Qt6 COMPONENTS Widgets)) is provided by the system or an
+# external toolchain. Conan users on a remote that ships Qt6 modules can add
+# the module here instead, e.g.:
+#   qtbase/<version>
 
 [generators]
 CMakeDeps

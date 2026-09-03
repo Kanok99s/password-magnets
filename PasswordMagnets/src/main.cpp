@@ -1,9 +1,18 @@
-// PasswordMagnets - application entry point.
+// PasswordMagnets - Qt6 Widgets application entry point.
 //
-// Besides a startup banner this executable runs the persistence checkpoint:
-// it builds a vault, saves it to disk encrypted with a master password,
-// reloads it with the correct password, then proves that a wrong password
-// is rejected cleanly without corrupting the in-memory vault.
+//   passwordmagnets                -> desktop UI (sodium init + LoginDialog)
+//   passwordmagnets --checkpoint   -> headless persistence self-check (CTest)
+//
+// The persistence checkpoint doubles as the CTest "vault_checkpoint": it
+// builds a vault, saves it encrypted with a master password, reloads it with
+// the correct password, then proves that a wrong password is rejected cleanly
+// without corrupting the in-memory vault.
+
+#include <QApplication>
+#include <QCoreApplication>
+#include <QDebug>
+#include <QDialog>
+#include <QMessageBox>
 
 #include <cstdio>
 #include <cstdlib>
@@ -12,6 +21,7 @@
 #include <string>
 #include <utility>
 
+#include "gui/LoginDialog.hpp"
 #include "passwordmagnets/crypto/sodium.hpp"
 #include "storage/VaultStore.hpp"
 
@@ -119,25 +129,71 @@ bool persistence_check() {
   return true;
 }
 
-}  // namespace
+// Returns true when argv is exactly "--checkpoint".
+bool wants_checkpoint(int argc, char** argv) {
+  return argc == 2 && std::string(argv[1]) == "--checkpoint";
+}
 
-int main() {
-  std::cout << "PasswordMagnets starting up...\n";
-
-  std::cout << "Initializing libsodium... ";
+// Headless mode used by CTest: no QApplication, no windows.
+int run_checkpoint() {
+  std::cout << "PasswordMagnets persistence checkpoint\n"
+            << "-------------------------------------\n";
   const int rc = passwordmagnets::crypto::init_sodium();
   if (rc != 0) {
-    std::cerr << "FAILED (sodium_init returned " << rc << ")\n";
+    std::cerr << "sodium_init returned " << rc << '\n';
     return EXIT_FAILURE;
   }
-  std::cout << "libsodium ready.\n\n";
-
-  std::cout << "Vault persistence checkpoint\n";
-  std::cout << "-----------------------------\n";
   if (!persistence_check()) {
     std::cerr << "checkpoint FAILED\n";
     return EXIT_FAILURE;
   }
   std::cout << "checkpoint passed.\n";
   return EXIT_SUCCESS;
+}
+
+}  // namespace
+
+int main(int argc, char** argv) {
+  if (wants_checkpoint(argc, argv)) return run_checkpoint();
+
+  QApplication app(argc, argv);
+  QCoreApplication::setOrganizationName(QStringLiteral("PasswordMagnets"));
+  QCoreApplication::setApplicationName(QStringLiteral("PasswordMagnets"));
+
+  // Closing (or transitioning away from) a window must not terminate the app.
+  // The login dialog closes itself on success and the next window takes over;
+  // only an explicit quit() ends the process.
+  QApplication::setQuitOnLastWindowClosed(false);
+
+  const int rc = passwordmagnets::crypto::init_sodium();
+  if (rc != 0) {
+    QMessageBox::critical(
+        nullptr, QStringLiteral("PasswordMagnets"),
+        QStringLiteral("Could not initialize cryptography support "
+                       "(sodium_init returned %1).")
+            .arg(rc));
+    return EXIT_FAILURE;
+  }
+
+  passwordmagnets::ui::LoginDialog dialog;
+  dialog.show();
+
+  // Successful create/unlock: the dialog closed itself (accept()), but the
+  // process keeps running. The vault window will be constructed and shown
+  // here in a later step.
+  QObject::connect(&dialog, &passwordmagnets::ui::LoginDialog::authenticationSucceeded,
+                   &dialog, [] {
+                     qInfo("authenticated - handing off to the vault window");
+                   });
+
+  // The login window is the only one for now: closing it (window "X" or Esc)
+  // finishes the dialog with Rejected and is an explicit "I want to quit".
+  // A successful unlock finishes with Accepted, which must NOT quit the app
+  // (that is the whole point of setQuitOnLastWindowClosed(false)).
+  QObject::connect(&dialog, &QDialog::finished, &dialog,
+                   [](int result) {
+                     if (result != QDialog::Accepted) QCoreApplication::quit();
+                   });
+
+  return app.exec();
 }

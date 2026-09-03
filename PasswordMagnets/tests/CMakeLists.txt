@@ -13,6 +13,7 @@ add_test(NAME sodium_smoke COMMAND sodium_smoke)
 add_test(NAME hash_table_test COMMAND hash_table_test)
 add_test(NAME vault_store_test COMMAND vault_store_test)
 
-# End-to-end persistence checkpoint: runs the passwordmagnets executable,
-# which saves/loads an encrypted vault and exits non-zero on any failure.
-add_test(NAME vault_checkpoint COMMAND passwordmagnets)
+# End-to-end persistence checkpoint: runs the passwordmagnets executable in
+# its headless --checkpoint mode (no QApplication/window is started), which
+# saves/loads an encrypted vault and exits non-zero on any failure.
+add_test(NAME vault_checkpoint COMMAND passwordmagnets --checkpoint)

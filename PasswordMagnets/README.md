@@ -1,7 +1,8 @@
 # PasswordMagnets
 
-Cross-platform **C++20** scaffold for a password manager, built with CMake.
-It links [libsodium](https://doc.libsodium.org/) and
+Cross-platform **C++20** password manager built with **CMake** and a
+**Qt6 Widgets** frontend. The vault layer links
+[libsodium](https://doc.libsodium.org/) (Argon2id + XChaCha20-Poly1305) and
 [nlohmann/json](https://github.com/nlohmann/json) through standard
 `find_package()` calls, so the same build works with **Vcpkg**, **Conan**,
 and system package managers (**apt** / **brew**) on Linux, macOS, and Windows.
@@ -20,19 +21,22 @@ PasswordMagnets/
 │   └── passwordmagnets/
 │       └── crypto/sodium.hpp   # public headers (installed)
 ├── src/
-│   ├── main.cpp                # entry point: startup message + sodium_init()
+│   ├── main.cpp                # entry point: QApplication + LoginDialog
+│   ├── gui/                    # Qt6 Widgets UI (programmatic, no .ui files)
 │   ├── crypto/                 # libsodium-backed crypto implementation
-│   ├── storage/                # future: encrypted vault storage
-│   └── gui/                    # future: desktop UI
+│   └── storage/                # VaultStore + HashTable (encrypted vault storage)
 └── tests/
     ├── CMakeLists.txt
-    └── sodium_smoke.cpp        # CTest: verifies sodium_init() succeeds
+    ├── sodium_smoke.cpp        # CTest: verifies sodium_init() succeeds
+    ├── hash_table_test.cpp     # CTest: container invariants
+    └── vault_store_test.cpp    # CTest: CRUD + search ranking
 ```
 
 ## Requirements
 
 - A C++20 compiler (GCC >= 10, Clang >= 12, MSVC >= 19.29 / VS 2022)
 - CMake >= 3.20
+- Qt 6 (Widgets module)
 - libsodium and nlohmann/json (installed via any package manager below)
 
 ## Installing dependencies
@@ -41,13 +45,13 @@ PasswordMagnets/
 
 ```sh
 sudo apt install build-essential cmake ninja-build pkg-config \
-     libsodium-dev nlohmann-json3-dev
+     qt6-base-dev libsodium-dev nlohmann-json3-dev
 ```
 
 ### Homebrew (macOS)
 
 ```sh
-brew install cmake ninja pkgconf libsodium nlohmann-json
+brew install cmake ninja pkgconf qt libsodium nlohmann-json
 ```
 
 ### Vcpkg (manifest mode picks up `vcpkg.json` automatically)
@@ -71,11 +75,24 @@ cmake --preset debug \
 ```sh
 cmake --preset debug
 cmake --build --preset debug
-ctest --preset debug            # runs the sodium_smoke test
-./build/debug/passwordmagnets   # prints startup message, exits 0 when libsodium is ready
+ctest --preset debug            # sodium, hash table, vault store, checkpoint
+./build/debug/passwordmagnets   # desktop UI: LoginDialog (create/unlock)
 ```
 
 On Windows use `--preset windows-msvc` (Visual Studio 2022).
+
+The executable has two modes:
+
+- **`passwordmagnets`** - starts the Qt6 Widgets UI. On first launch no vault
+  file exists, so the `LoginDialog` offers *Create Master Password* /
+  *Create Vault*; afterwards it offers *Enter Master Password* / *Unlock*.
+  The vault is stored at `QStandardPaths::AppDataLocation/vault.bin`.
+  Because `QApplication::setQuitOnLastWindowClosed(false)` is in effect,
+  closing the login dialog on success does not terminate the process - the
+  app stays alive for the (upcoming) vault window transition.
+- **`passwordmagnets --checkpoint`** - headless persistence self-check used by
+  the `vault_checkpoint` CTest; it exits non-zero on any failure and requires
+  no display or windowing system.
 
 ## Installing and packaging
 
@@ -107,4 +124,6 @@ Different ecosystems install libsodium differently, so
 
 - New **public API** goes in `include/passwordmagnets/...` and is installed.
 - New **implementations** go in `src/crypto/`, `src/storage/`, or `src/gui/`
-  and are added to the `passwordmagnets_core` sources in `CMakeLists.txt`.
+  and are added to the right target in `CMakeLists.txt` (crypto/storage ->
+  `passwordmagnets_core`, GUI classes -> `passwordmagnets`, which links
+  `Qt6::Widgets` and runs AUTOMOC for `Q_OBJECT` classes).

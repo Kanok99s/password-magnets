@@ -3,6 +3,7 @@
   "name": "passwordmagnets",
   "version": "0.1.0",
   "dependencies": [
+    "qtbase",
     "libsodium",
     "nlohmann-json"
   ]

@@ -1,13 +1,13 @@
 # =============================================================================
 # PasswordMagnets
-#   C++20 | static core library + CLI | CTest | install()/CPack
+#   C++20 | Qt6 Widgets desktop UI + static core library | CTest | install()/CPack
 #   Cross-platform: Linux, macOS, Windows (Vcpkg / Conan / apt / brew)
 # =============================================================================
 cmake_minimum_required(VERSION 3.20)
 
 project(PasswordMagnets
   VERSION 0.1.0
-  DESCRIPTION "Password manager scaffold built on libsodium and nlohmann/json"
+  DESCRIPTION "Password manager built on Qt6 Widgets, libsodium and nlohmann/json"
   LANGUAGES CXX
 )
 
@@ -17,6 +17,9 @@ include(GNUInstallDirs)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+
+# Qt's meta-object compiler generates moc_* sources for Q_OBJECT classes.
+set(CMAKE_AUTOMOC ON)
 
 # Pick a sensible default build type for single-config generators.
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
@@ -30,6 +33,9 @@ option(PASSWORDMAGNETS_BUILD_TESTS "Build and register the CTest suite." ON)
 option(PASSWORDMAGNETS_INSTALL "Generate install() and CPack packaging rules." ON)
 
 # --- Dependencies ------------------------------------------------------------
+# Qt6 provides the Widgets desktop UI (LoginDialog + future vault window).
+find_package(Qt6 REQUIRED COMPONENTS Widgets)
+
 # nlohmann/json ships a proper CMake package config on apt, Homebrew, Vcpkg and
 # Conan, so one find_package call covers every ecosystem.
 find_package(nlohmann_json CONFIG REQUIRED)
@@ -48,7 +54,7 @@ else()
 endif()
 
 # --- PasswordMagnets::core (static library) ----------------------------------
-# Public headers live in include/, implementations live under src/.
+# Pure C++20 (no Qt) so tests and the GUI link it without dragging in Qt.
 add_library(passwordmagnets_core STATIC
   # VaultStore.o must precede the crypto objects it references so a plain
   # static-archive scan resolves every dependency in one pass.
@@ -72,11 +78,23 @@ set_target_properties(passwordmagnets_core PROPERTIES
   POSITION_INDEPENDENT_CODE ON
 )
 
-# --- passwordmagnets (executable) --------------------------------------------
-add_executable(passwordmagnets src/main.cpp)
-target_link_libraries(passwordmagnets PRIVATE PasswordMagnets::core)
-# main.cpp uses VaultStore / Entry from src/storage (in-tree, not installed).
-target_include_directories(passwordmagnets PRIVATE "${PROJECT_SOURCE_DIR}/src")
+# --- passwordmagnets (Qt6 Widgets executable) ---------------------------------
+add_executable(passwordmagnets
+  src/main.cpp
+  src/gui/LoginDialog.cpp
+  src/gui/LoginDialog.hpp   # listed so AUTOMOC picks up its Q_OBJECT
+)
+target_link_libraries(passwordmagnets
+  PRIVATE PasswordMagnets::core
+  PRIVATE Qt6::Widgets
+)
+# In-tree sources live next to their headers and are not part of the installed
+# API, so the executable needs src/ (for "storage/...", "gui/...") and src/gui/
+# (AUTOMOC's moc_*.cpp includes the header by its bare file name).
+target_include_directories(passwordmagnets PRIVATE
+  "${PROJECT_SOURCE_DIR}/src"
+  "${PROJECT_SOURCE_DIR}/src/gui"
+)
 
 # --- Tests --------------------------------------------------------------------
 if(PASSWORDMAGNETS_BUILD_TESTS)
@@ -103,7 +121,7 @@ if(PASSWORDMAGNETS_INSTALL)
   set(CPACK_PACKAGE_VENDOR "PasswordMagnets")
   set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
   set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
-    "Password manager scaffold built on libsodium and nlohmann/json")
+    "Password manager built on Qt6 Widgets, libsodium and nlohmann/json")
   set(CPACK_GENERATOR "ZIP;TGZ")
   include(CPack)
 endif()
