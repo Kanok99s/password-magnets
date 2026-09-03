@@ -50,11 +50,13 @@ endif()
 # --- PasswordMagnets::core (static library) ----------------------------------
 # Public headers live in include/, implementations live under src/.
 add_library(passwordmagnets_core STATIC
+  # VaultStore.o must precede the crypto objects it references so a plain
+  # static-archive scan resolves every dependency in one pass.
+  src/storage/VaultStore.cpp
+  src/storage/VaultStore.hpp
   src/crypto/sodium.cpp
   src/crypto/CryptoEngine.cpp
   src/crypto/CryptoEngine.hpp
-  src/storage/VaultStore.cpp
-  src/storage/VaultStore.hpp
 )
 add_library(PasswordMagnets::core ALIAS passwordmagnets_core)
 
@@ -64,7 +66,7 @@ target_include_directories(passwordmagnets_core PUBLIC
 )
 target_link_libraries(passwordmagnets_core
   PUBLIC  ${PASSWORDMAGNETS_SODIUM_TARGET}
-  PRIVATE nlohmann_json::nlohmann_json
+  PUBLIC  nlohmann_json::nlohmann_json
 )
 set_target_properties(passwordmagnets_core PROPERTIES
   POSITION_INDEPENDENT_CODE ON
@@ -73,6 +75,8 @@ set_target_properties(passwordmagnets_core PROPERTIES
 # --- passwordmagnets (executable) --------------------------------------------
 add_executable(passwordmagnets src/main.cpp)
 target_link_libraries(passwordmagnets PRIVATE PasswordMagnets::core)
+# main.cpp uses VaultStore / Entry from src/storage (in-tree, not installed).
+target_include_directories(passwordmagnets PRIVATE "${PROJECT_SOURCE_DIR}/src")
 
 # --- Tests --------------------------------------------------------------------
 if(PASSWORDMAGNETS_BUILD_TESTS)

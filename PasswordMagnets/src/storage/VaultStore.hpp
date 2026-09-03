@@ -9,6 +9,8 @@
 #include <string>
 #include <vector>
 
+#include <nlohmann/json.hpp>
+
 #include "HashTable.hpp"
 
 namespace passwordmagnets::storage {
@@ -54,6 +56,30 @@ class VaultStore {
   // sorted by descending relevance (see VaultStore.cpp for the scoring
   // model); the ordering is fully deterministic.
   std::vector<Entry> search(const std::string& query) const;
+
+  // --- Serialization -----------------------------------------------------------
+  // Serializes every stored entry into a JSON array of objects:
+  //   [ { "service":..., "username":..., "password":..., "notes":... }, ... ]
+  // The array may appear in any order.
+  nlohmann::json serialize() const;
+
+  // Replaces this vault's contents from a JSON array produced by
+  // serialize(). Returns false (leaving the vault untouched) when the
+  // document is malformed or contains duplicate services.
+  bool deserialize(const nlohmann::json& doc);
+
+  // --- File persistence -------------------------------------------------------
+  // Writes the vault to `path` as a single binary file with the layout
+  //   [Salt 16 bytes][Nonce 24 bytes][XChaCha20-Poly1305 ciphertext]
+  // The payload is the JSON from serialize(). Returns false on I/O or
+  // cryptographic failure; this vault is never modified.
+  bool saveToFile(const std::string& path, const std::string& masterPassword) const;
+
+  // Loads a vault saved by saveToFile(). The master password must match the
+  // one used when saving. The current contents are replaced only after the
+  // file decrypts and validates successfully, so a wrong password, corrupt
+  // file, or missing file fails gracefully and leaves this vault untouched.
+  bool loadFromFile(const std::string& path, const std::string& masterPassword);
 
  private:
   HashTable<std::string, Entry> entries_;

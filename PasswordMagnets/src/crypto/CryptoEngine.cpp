@@ -93,9 +93,14 @@ Key CryptoEngine::deriveKey(std::string_view masterPassword, const Salt& salt) c
 }
 
 EncryptedBlob CryptoEngine::encrypt(std::string_view plaintext, const Key& key) const {
+  return encrypt(plaintext, key, generateSalt(), generateNonce());
+}
+
+EncryptedBlob CryptoEngine::encrypt(std::string_view plaintext, const Key& key,
+                                    const Salt& salt, const Nonce& nonce) const {
   EncryptedBlob blob;
-  blob.salt = generateSalt();
-  blob.nonce = generateNonce();
+  blob.salt = salt;
+  blob.nonce = nonce;
 
   // Point at a dummy byte for empty messages so libsodium never receives a
   // (possibly null) data() pointer from an empty string_view.

@@ -74,6 +74,13 @@ class CryptoEngine {
   // returns an EncryptedBlob carrying its own random salt and nonce.
   [[nodiscard]] EncryptedBlob encrypt(std::string_view plaintext, const Key& key) const;
 
+  // Encrypts using salt and nonce chosen by the caller (e.g. a storage
+  // format that lays out [salt][nonce][ciphertext] as file headers). The
+  // salt must be the one passed to deriveKey() so that decrypting later
+  // with deriveKey(masterPassword, blob.salt) reproduces this key.
+  [[nodiscard]] EncryptedBlob encrypt(std::string_view plaintext, const Key& key,
+                                      const Salt& salt, const Nonce& nonce) const;
+
   // Decrypts a blob. Returns std::nullopt on a wrong key or tampered
   // ciphertext - authentication failures never throw.
   [[nodiscard]] std::optional<std::string> decrypt(const EncryptedBlob& blob, const Key& key) const;

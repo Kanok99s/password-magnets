@@ -4,11 +4,28 @@
 #include "VaultStore.hpp"
 
 #include <algorithm>
+#include <fstream>
+#include <iterator>
+#include <utility>
 #include <vector>
+
+#include "../crypto/CryptoEngine.hpp"
 
 namespace passwordmagnets::storage {
 
 namespace {
+
+// On-disk header sizes. crypto_pwhash_SALTBYTES is 16 and
+// crypto_secretbox_NONCEBYTES is 24; the MAC (16 bytes) sets the minimum
+// ciphertext length, so any valid file is at least 56 bytes long.
+constexpr std::size_t kSaltBytes = sizeof(crypto::Salt);
+constexpr std::size_t kNonceBytes = sizeof(crypto::Nonce);
+constexpr std::size_t kMinCiphertextBytes = crypto_secretbox_MACBYTES;
+constexpr std::size_t kMinFileBytes = kSaltBytes + kNonceBytes + kMinCiphertextBytes;
+
+static_assert(kSaltBytes == 16, "unexpected libsodium salt size");
+static_assert(kNonceBytes == 24, "unexpected libsodium nonce size");
+
 
 // ---------------------------------------------------------------------------
 // ASCII lower-casing helper (only plain-ASCII letters are folded, which is
@@ -214,6 +231,119 @@ std::vector<Entry> VaultStore::search(const std::string& query) const {
 
   for (const Candidate& c : candidates) results.push_back(c.entry);
   return results;
+}
+
+// --- Serialization --------------------------------------------------------------
+
+nlohmann::json VaultStore::serialize() const {
+  nlohmann::json arr = nlohmann::json::array();
+  for (const auto& kv : entries_) {
+    const Entry& e = kv.second;
+    arr.push_back({{"service", e.service},
+                   {"username", e.username},
+                   {"password", e.password},
+                   {"notes", e.notes}});
+  }
+  return arr;
+}
+
+bool VaultStore::deserialize(const nlohmann::json& doc) {
+  if (!doc.is_array()) return false;
+
+  // Validate the whole document into a scratch table first so a malformed
+  // input (bad shape, duplicate service) can never leave this vault half
+  // replaced.
+  HashTable<std::string, Entry> loaded;
+  for (const auto& item : doc) {
+    if (!item.is_object()) return false;
+    Entry e;
+    const auto read_field = [&item](const char* key, std::string& out) {
+      const auto it = item.find(key);
+      if (it == item.end() || !it->is_string()) return false;
+      out = it->get<std::string>();
+      return true;
+    };
+    const bool ok = read_field("service", e.service) &&
+                    read_field("username", e.username) &&
+                    read_field("password", e.password) &&
+                    read_field("notes", e.notes);
+    if (!ok) return false;
+    if (!loaded.insert(e.service, e).second) return false;  // duplicate service
+  }
+
+  entries_ = std::move(loaded);  // commit only after full validation
+  return true;
+}
+
+// --- File persistence ------------------------------------------------------------
+
+bool VaultStore::saveToFile(const std::string& path,
+                            const std::string& masterPassword) const {
+  try {
+    const std::string payload = serialize().dump();  // compact JSON, UTF-8
+
+    crypto::CryptoEngine engine;
+    const crypto::Salt salt = engine.generateSalt();
+    const crypto::Nonce nonce = engine.generateNonce();
+    const crypto::Key key = engine.deriveKey(masterPassword, salt);
+    // Explicit salt/nonce keep the header bytes and the key derivation
+    // consistent: loadFromFile re-derives the key from the stored salt.
+    const crypto::EncryptedBlob blob =
+        engine.encrypt(payload, key, salt, nonce);
+
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    if (!out) return false;
+
+    // [Salt 16][Nonce 24][Ciphertext payload]
+    out.write(reinterpret_cast<const char*>(blob.salt.data()),
+              static_cast<std::streamsize>(blob.salt.size()));
+    out.write(reinterpret_cast<const char*>(blob.nonce.data()),
+              static_cast<std::streamsize>(blob.nonce.size()));
+    out.write(reinterpret_cast<const char*>(blob.ciphertext.data()),
+              static_cast<std::streamsize>(blob.ciphertext.size()));
+    out.flush();
+    return static_cast<bool>(out);
+  } catch (const std::exception&) {
+    return false;  // crypto failure (e.g. KDF out of memory), bad path, ...
+  }
+}
+
+bool VaultStore::loadFromFile(const std::string& path,
+                              const std::string& masterPassword) {
+  std::ifstream in(path, std::ios::binary);
+  if (!in) return false;
+
+  const std::vector<unsigned char> file(
+      std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+  if (!in.eof()) return false;  // read ended before reaching EOF
+  if (file.size() < kMinFileBytes) return false;
+
+  try {
+    crypto::Salt salt;
+    crypto::Nonce nonce;
+    std::copy_n(file.begin(), static_cast<std::ptrdiff_t>(salt.size()),
+                salt.begin());
+    std::copy_n(file.begin() + static_cast<std::ptrdiff_t>(salt.size()),
+                static_cast<std::ptrdiff_t>(nonce.size()), nonce.begin());
+    const std::vector<unsigned char> ciphertext(
+        file.begin() + static_cast<std::ptrdiff_t>(salt.size() + nonce.size()),
+        file.end());
+
+    crypto::CryptoEngine engine;
+    const crypto::Key key = engine.deriveKey(masterPassword, salt);
+    crypto::EncryptedBlob blob;
+    blob.salt = salt;
+    blob.nonce = nonce;
+    blob.ciphertext = ciphertext;
+
+    const std::optional<std::string> plaintext = engine.decrypt(blob, key);
+    if (!plaintext) return false;  // wrong password or tampered payload
+
+    // Replace the vault only after the JSON validates end to end.
+    return deserialize(nlohmann::json::parse(*plaintext));
+  } catch (const std::exception&) {
+    return false;
+  }
 }
 
 }  // namespace passwordmagnets::storage
