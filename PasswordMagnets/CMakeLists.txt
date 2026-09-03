@@ -51,6 +51,8 @@ endif()
 # Public headers live in include/, implementations live under src/.
 add_library(passwordmagnets_core STATIC
   src/crypto/sodium.cpp
+  src/crypto/CryptoEngine.cpp
+  src/crypto/CryptoEngine.hpp
 )
 add_library(PasswordMagnets::core ALIAS passwordmagnets_core)
 
