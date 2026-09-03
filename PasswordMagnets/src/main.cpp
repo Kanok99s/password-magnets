@@ -3,6 +3,17 @@
 //   passwordmagnets                -> desktop UI (sodium init + LoginDialog)
 //   passwordmagnets --checkpoint   -> headless persistence self-check (CTest)
 //
+// Desktop lifecycle, driven by window transitions:
+//   * LoginDialog runs first: no vault file -> "Create Master Password"
+//     (creates and saves a fresh vault); vault present -> "Enter Master
+//     Password" (loadFromFile with inline error on failure).
+//   * On success the login dialog closes itself and the MainWindow (the
+//     vault listing with live search and add/edit/delete) takes over.
+//   * Lock Vault disposes of the vault window and returns to the login
+//     dialog for the next unlock. Closing a window via "X"/Esc quits.
+//   * QApplication::setQuitOnLastWindowClosed(false) is what makes those
+//     window transitions possible without terminating the process.
+//
 // The persistence checkpoint doubles as the CTest "vault_checkpoint": it
 // builds a vault, saves it encrypted with a master password, reloads it with
 // the correct password, then proves that a wrong password is rejected cleanly
@@ -10,9 +21,9 @@
 
 #include <QApplication>
 #include <QCoreApplication>
-#include <QDebug>
 #include <QDialog>
 #include <QMessageBox>
+#include <QPointer>
 
 #include <cstdio>
 #include <cstdlib>
@@ -22,6 +33,7 @@
 #include <utility>
 
 #include "gui/LoginDialog.hpp"
+#include "gui/MainWindow.hpp"
 #include "passwordmagnets/crypto/sodium.hpp"
 #include "storage/VaultStore.hpp"
 
@@ -175,25 +187,46 @@ int main(int argc, char** argv) {
     return EXIT_FAILURE;
   }
 
-  passwordmagnets::ui::LoginDialog dialog;
-  dialog.show();
+  // One login dialog reused across lock cycles; the vault window is created
+  // fresh after every successful unlock.
+  passwordmagnets::ui::LoginDialog login;
+  QPointer<passwordmagnets::ui::MainWindow> vaultWindow;
 
-  // Successful create/unlock: the dialog closed itself (accept()), but the
-  // process keeps running. The vault window will be constructed and shown
-  // here in a later step.
-  QObject::connect(&dialog, &passwordmagnets::ui::LoginDialog::authenticationSucceeded,
-                   &dialog, [] {
-                     qInfo("authenticated - handing off to the vault window");
-                   });
+  const auto openVaultWindow = [&] {
+    // Finished with Accepted, so LoginDialog holds the unlocked vault and the
+    // credentials that open it; hand copies to the vault window.
+    auto* const win = new passwordmagnets::ui::MainWindow(
+        login.vault(), login.masterPassword(), login.vaultPath());
+    vaultWindow = win;
 
-  // The login window is the only one for now: closing it (window "X" or Esc)
-  // finishes the dialog with Rejected and is an explicit "I want to quit".
-  // A successful unlock finishes with Accepted, which must NOT quit the app
-  // (that is the whole point of setQuitOnLastWindowClosed(false)).
-  QObject::connect(&dialog, &QDialog::finished, &dialog,
-                   [](int result) {
-                     if (result != QDialog::Accepted) QCoreApplication::quit();
-                   });
+    // Lock: dispose of the vault window and return to the login dialog.
+    QObject::connect(win, &passwordmagnets::ui::MainWindow::vaultLocked, win,
+                     [&] {
+                       if (vaultWindow) {
+                         vaultWindow->hide();
+                         vaultWindow->deleteLater();
+                       }
+                       login.prepareForLogin();
+                       login.show();
+                     });
 
+    // Closing the vault window via the window manager exits the application.
+    QObject::connect(win, &passwordmagnets::ui::MainWindow::windowClosed, win,
+                     [] { QCoreApplication::quit(); });
+
+    win->show();
+  };
+
+  // Login flow: Rejected ("X"/Esc) quits; Accepted (vault created/unlocked)
+  // transitions to the vault window.
+  QObject::connect(&login, &QDialog::finished, &login, [&](int result) {
+    if (result == QDialog::Rejected) {
+      QCoreApplication::quit();
+      return;
+    }
+    openVaultWindow();
+  });
+
+  login.show();
   return app.exec();
 }

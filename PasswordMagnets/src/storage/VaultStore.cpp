@@ -233,6 +233,16 @@ std::vector<Entry> VaultStore::search(const std::string& query) const {
   return results;
 }
 
+std::vector<Entry> VaultStore::allEntries() const {
+  std::vector<Entry> all;
+  all.reserve(entries_.size());
+  for (const auto& kv : entries_) all.push_back(kv.second);
+  std::sort(all.begin(), all.end(), [](const Entry& a, const Entry& b) {
+    return a.service < b.service;  // deterministic alphabetical listing
+  });
+  return all;
+}
+
 // --- Serialization --------------------------------------------------------------
 
 nlohmann::json VaultStore::serialize() const {

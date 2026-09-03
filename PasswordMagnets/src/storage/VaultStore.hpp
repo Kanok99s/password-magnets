@@ -57,6 +57,11 @@ class VaultStore {
   // model); the ordering is fully deterministic.
   std::vector<Entry> search(const std::string& query) const;
 
+  // All stored entries, sorted ascending by service name. This is the
+  // unfiltered starting point for listing a vault (an empty query to
+  // search() deliberately matches nothing).
+  std::vector<Entry> allEntries() const;
+
   // --- Serialization -----------------------------------------------------------
   // Serializes every stored entry into a JSON array of objects:
   //   [ { "service":..., "username":..., "password":..., "notes":... }, ... ]

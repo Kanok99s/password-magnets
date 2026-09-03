@@ -22,7 +22,8 @@ PasswordMagnets/
 │       └── crypto/sodium.hpp   # public headers (installed)
 ├── src/
 │   ├── main.cpp                # entry point: QApplication + LoginDialog
-│   ├── gui/                    # Qt6 Widgets UI (programmatic, no .ui files)
+│   ├── gui/                    # Qt6 Widgets UI (programmatic, no .ui files):
+│   │                           #   LoginDialog, MainWindow, EntryDialog
 │   ├── crypto/                 # libsodium-backed crypto implementation
 │   └── storage/                # VaultStore + HashTable (encrypted vault storage)
 └── tests/
@@ -87,9 +88,13 @@ The executable has two modes:
   file exists, so the `LoginDialog` offers *Create Master Password* /
   *Create Vault*; afterwards it offers *Enter Master Password* / *Unlock*.
   The vault is stored at `QStandardPaths::AppDataLocation/vault.bin`.
-  Because `QApplication::setQuitOnLastWindowClosed(false)` is in effect,
-  closing the login dialog on success does not terminate the process - the
-  app stays alive for the (upcoming) vault window transition.
+  After a successful unlock a `MainWindow` lists every entry (Service,
+  Username, masked Password, Actions) behind a live search bar that re-runs
+  `VaultStore::search()` on every keystroke, with Add / Edit / Delete /
+  per-row Copy actions and a *Lock Vault* button that returns to the login
+  dialog. Because `QApplication::setQuitOnLastWindowClosed(false)` is in
+  effect, closing a window on success/lock does not terminate the process -
+  window transitions keep the app alive until an explicit quit.
 - **`passwordmagnets --checkpoint`** - headless persistence self-check used by
   the `vault_checkpoint` CTest; it exits non-zero on any failure and requires
   no display or windowing system.

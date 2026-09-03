@@ -83,6 +83,10 @@ add_executable(passwordmagnets
   src/main.cpp
   src/gui/LoginDialog.cpp
   src/gui/LoginDialog.hpp   # listed so AUTOMOC picks up its Q_OBJECT
+  src/gui/EntryDialog.cpp
+  src/gui/EntryDialog.hpp
+  src/gui/MainWindow.cpp
+  src/gui/MainWindow.hpp
 )
 target_link_libraries(passwordmagnets
   PRIVATE PasswordMagnets::core

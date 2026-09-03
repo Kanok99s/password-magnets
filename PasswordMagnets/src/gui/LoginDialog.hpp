@@ -39,6 +39,11 @@ class LoginDialog final : public QDialog {
   // directory on Windows/macOS/Linux plus "/vault.bin".
   static QString defaultVaultPath();
 
+  // Re-arms this dialog for another authentication round after the vault was
+  // locked: the previous session is discarded and the Create/Unlock state is
+  // re-derived from the vault file currently on disk.
+  void prepareForLogin();
+
   // --- Result state (valid once authenticationSucceeded() has fired) ------
   const storage::VaultStore& vault() const noexcept { return vault_; }
   QString vaultPath() const noexcept { return vaultPath_; }

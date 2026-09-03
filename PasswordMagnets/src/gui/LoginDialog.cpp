@@ -61,6 +61,14 @@ LoginDialog::LoginDialog(QString vaultPath, QWidget* parent) : QDialog(parent) {
   configureFor(mode);
 }
 
+void LoginDialog::prepareForLogin() {
+  // Drop the previous session: the file on disk is the source of truth and
+  // decides whether the next round creates or unlocks a vault.
+  vault_ = storage::VaultStore();
+  masterPassword_.clear();
+  configureFor(QFile::exists(vaultPath_) ? Mode::kUnlock : Mode::kCreate);
+}
+
 void LoginDialog::buildUi() {
   auto* const layout = new QVBoxLayout(this);
   layout->setContentsMargins(28, 24, 28, 20);
@@ -119,9 +127,11 @@ void LoginDialog::buildUi() {
 void LoginDialog::configureFor(Mode mode) {
   mode_ = mode;
   authenticated_ = false;
+  busy_ = false;
   clearError();
   passwordEdit_->clear();
   passwordEdit_->setFocus();
+  actionButton_->setEnabled(true);
 
   if (mode == Mode::kUnlock) {
     setWindowTitle(QStringLiteral("Unlock Vault"));
