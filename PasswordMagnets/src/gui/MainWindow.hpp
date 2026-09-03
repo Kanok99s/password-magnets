@@ -5,15 +5,28 @@
 //     everything via allEntries() when empty) on every keystroke,
 //   * a QTableWidget with Service | Username | Password | Actions columns,
 //     whole-row selection and stretched columns,
-//   * Add / Edit / Delete / Lock Vault actions.
+//   * Add / Edit / Delete / Lock Vault actions, plus a per-row Copy button.
 //
 // The window owns a copy of the vault plus the credentials that unlock it, so
 // every mutation can be written back to the encrypted file immediately
 // (persist()). Locking emits vaultLocked(); closing via the window manager
 // emits windowClosed() so the caller can decide how to proceed.
+//
+// Two self-protection features live here:
+//   * Clipboard auto-clear: after a Copy the password is watched for 20 s and
+//     scrubbed from the system clipboard if it is still there. Only a SHA-256
+//     digest of the copied password is kept in memory, never a second copy of
+//     the plaintext.
+//   * Inactivity lock: after 5 minutes without keyboard/mouse input the
+//     window locks itself via vaultLocked() so the caller can present the
+//     login dialog again. Input is watched application-wide through an event
+//     filter, installed on show and removed on hide so it is always gone
+//     before the window is disposed of.
 #pragma once
 
+#include <QByteArray>
 #include <QMainWindow>
+#include <QPoint>
 #include <QString>
 
 #include <vector>
@@ -21,10 +34,14 @@
 #include "storage/VaultStore.hpp"
 
 class QCloseEvent;
+class QEvent;
+class QHideEvent;
 class QLabel;
 class QLineEdit;
 class QPushButton;
+class QShowEvent;
 class QTableWidget;
+class QTimer;
 
 namespace passwordmagnets::ui {
 
@@ -38,8 +55,8 @@ class MainWindow final : public QMainWindow {
   const storage::VaultStore& vault() const noexcept { return vault_; }
 
  signals:
-  // The user pressed "Lock Vault". The caller hides this window and returns
-  // to the login dialog.
+  // The user pressed "Lock Vault", or the inactivity timer fired. The caller
+  // hides this window and returns to the login dialog.
   void vaultLocked();
 
   // The user closed this window via the window manager ("X" button).
@@ -47,6 +64,13 @@ class MainWindow final : public QMainWindow {
 
  protected:
   void closeEvent(QCloseEvent* event) override;
+  void showEvent(QShowEvent* event) override;
+  void hideEvent(QHideEvent* event) override;
+
+  // Watches the whole application for keyboard/mouse input so inactivity can
+  // be measured across the session (modal dialogs included). The filter is
+  // installed on the QApplication in showEvent() and removed in hideEvent().
+  bool eventFilter(QObject* watched, QEvent* event) override;
 
  private:
   void buildUi();
@@ -62,6 +86,12 @@ class MainWindow final : public QMainWindow {
   void deleteEntry();
   void copyPassword(int row);
 
+  // --- Security helpers ------------------------------------------------------
+  void noteActivity();    // a keypress/mouse event: restart the idle timer
+  void onIdleTimeout();   // the idle timer fired (5 min without input)
+  void lockVault();       // scrub in-memory secrets, then emit vaultLocked()
+  void clearCopiedPassword(bool notify);  // stop watch; clear clipboard if ours
+
   storage::VaultStore vault_;
   QString masterPassword_;
   QString vaultPath_;
@@ -76,6 +106,14 @@ class MainWindow final : public QMainWindow {
   QPushButton* editButton_ = nullptr;
   QPushButton* deleteButton_ = nullptr;
   QPushButton* lockButton_ = nullptr;
+
+  // Clipboard auto-clear.
+  QTimer* clipboardTimer_ = nullptr;  // 20 s single-shot after Copy
+  QByteArray copiedDigest_;           // SHA-256 of the password on watch
+
+  // Inactivity auto-lock.
+  QTimer* idleTimer_ = nullptr;  // 5 min single-shot, reset on input
+  QPoint lastMousePos_;          // last seen global mouse position
 };
 
 }  // namespace passwordmagnets::ui

@@ -5,16 +5,21 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QCloseEvent>
+#include <QCryptographicHash>
 #include <QHeaderView>
 #include <QHBoxLayout>
+#include <QHideEvent>
 #include <QItemSelectionModel>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
+#include <QMouseEvent>
 #include <QPushButton>
+#include <QShowEvent>
 #include <QStringList>
 #include <QTableWidget>
 #include <QTableWidgetItem>
+#include <QTimer>
 #include <QVBoxLayout>
 
 #include <algorithm>
@@ -33,6 +38,19 @@ constexpr const char* kAccent = "#4f46e5";
 constexpr const char* kAccentHover = "#4338ca";
 constexpr const char* kAccentPressed = "#3730a3";
 constexpr const char* kDanger = "#dc2626";
+
+// A copied password is scrubbed from the clipboard 20 s later, provided it is
+// still there (see clearCopiedPassword()).
+constexpr int kClipboardClearMs = 20 * 1000;
+
+// The vault locks itself after 5 minutes without keyboard/mouse input.
+constexpr int kIdleLockMs = 5 * 60 * 1000;
+
+// Non-reversible fingerprint used to recognise "the password we copied" on the
+// clipboard without keeping a second plaintext copy in memory.
+QByteArray sha256(const QByteArray& data) {
+  return QCryptographicHash::hash(data, QCryptographicHash::Sha256);
+}
 
 QString primaryButtonStyle() {
   return QStringLiteral(
@@ -94,6 +112,21 @@ MainWindow::MainWindow(storage::VaultStore vault, QString masterPassword,
 
   buildUi();
   refreshTable();
+
+  // --- Clipboard auto-clear timer (20 s single-shot, armed by Copy). -------
+  clipboardTimer_ = new QTimer(this);
+  clipboardTimer_->setSingleShot(true);
+  connect(clipboardTimer_, &QTimer::timeout, this,
+          [this] { clearCopiedPassword(/*notify=*/true); });
+
+  // --- Inactivity auto-lock timer (5 min single-shot, reset on input). -----
+  idleTimer_ = new QTimer(this);
+  idleTimer_->setSingleShot(true);
+  connect(idleTimer_, &QTimer::timeout, this, &MainWindow::onIdleTimeout);
+
+  // The application-wide input watch (eventFilter) is installed in
+  // showEvent() and removed in hideEvent(), so it is always gone before this
+  // window is deleted.
 }
 
 void MainWindow::buildUi() {
@@ -156,6 +189,8 @@ void MainWindow::buildUi() {
 
   lockButton_ = new QPushButton(QStringLiteral("Lock Vault"), central);
   lockButton_->setObjectName(QStringLiteral("lockButton"));
+  lockButton_->setToolTip(QStringLiteral(
+      "Lock now (the vault also locks itself after 5 minutes of inactivity)"));
   lockButton_->setCursor(Qt::PointingHandCursor);
   lockButton_->setStyleSheet(secondaryButtonStyle());
 
@@ -175,8 +210,7 @@ void MainWindow::buildUi() {
   connect(addButton_, &QPushButton::clicked, this, &MainWindow::addEntry);
   connect(editButton_, &QPushButton::clicked, this, &MainWindow::editEntry);
   connect(deleteButton_, &QPushButton::clicked, this, &MainWindow::deleteEntry);
-  connect(lockButton_, &QPushButton::clicked, this,
-          [this] { emit vaultLocked(); });
+  connect(lockButton_, &QPushButton::clicked, this, &MainWindow::lockVault);
   connect(table_->selectionModel(), &QItemSelectionModel::selectionChanged,
           this, [this] { updateActionButtons(); });
 }
@@ -207,6 +241,9 @@ void MainWindow::refreshTable() {
                     cellItem(maskedPassword(QString::fromStdString(e.password))));
 
     auto* const copyButton = new QPushButton(QStringLiteral("Copy"), table_);
+    copyButton->setToolTip(
+        QStringLiteral("Copy the password to the clipboard (auto-clears after "
+                       "20 seconds)"));
     copyButton->setCursor(Qt::PointingHandCursor);
     copyButton->setStyleSheet(
         QStringLiteral(
@@ -363,17 +400,133 @@ void MainWindow::deleteEntry() {
 void MainWindow::copyPassword(int row) {
   if (row < 0 || row >= static_cast<int>(rows_.size())) return;
   const storage::Entry& e = rows_[static_cast<std::size_t>(row)];
-  QApplication::clipboard()->setText(QString::fromStdString(e.password));
+  const QString password = QString::fromStdString(e.password);
+
+  auto* const clipboard = QApplication::clipboard();
+  clipboard->setText(password);
+
+  // Track only a digest of what we copied, never a second plaintext copy, so
+  // the 20 s sweep (clearCopiedPassword) can tell whether the clipboard still
+  // holds it.
+  copiedDigest_ = sha256(password.toUtf8());
+  clipboardTimer_->start(kClipboardClearMs);
+
   statusBar()->showMessage(
-      QStringLiteral("Password for \"%1\" copied to the clipboard.")
+      QStringLiteral("Password for \"%1\" copied; clipboard clears in 20 s.")
           .arg(QString::fromStdString(e.service)),
       3000);
+}
+
+void MainWindow::clearCopiedPassword(bool notify) {
+  clipboardTimer_->stop();
+  if (copiedDigest_.isEmpty()) return;  // nothing of ours on watch
+
+  // Only clear when the clipboard still holds exactly what we copied: if the
+  // user pasted something over it in the meantime, that text is theirs.
+  const bool stillOurs =
+      sha256(QApplication::clipboard()->text().toUtf8()) == copiedDigest_;
+  copiedDigest_.clear();
+  if (!stillOurs) return;
+
+  QApplication::clipboard()->clear();
+  if (notify) {
+    statusBar()->showMessage(
+        QStringLiteral("Copied password removed from the clipboard."), 3000);
+  }
+}
+
+void MainWindow::noteActivity() {
+  if (!isVisible()) return;  // hidden/locking: nothing to keep alive
+  idleTimer_->start(kIdleLockMs);
+}
+
+void MainWindow::onIdleTimeout() {
+  // A modal child (add/edit entry, delete confirmation) parks the user's
+  // focus mid-operation; defer the lock rather than locking underneath it.
+  if (QApplication::activeModalWidget() != nullptr) {
+    idleTimer_->start(kIdleLockMs);
+    return;
+  }
+  lockVault();
+}
+
+void MainWindow::lockVault() {
+  // 1. If the clipboard still holds a password we copied, scrub it now so a
+  //    lock never strands a plaintext secret on the system clipboard.
+  clearCopiedPassword(/*notify=*/false);
+  idleTimer_->stop();
+
+  // 2. Drop the sensitive in-memory copies the window keeps: the plaintext
+  //    rows_ vector, the widget cells mirroring it, and this vault/master
+  //    password copy. The window is disposed right after vaultLocked(), but
+  //    scrubbing now means no secrets linger while deletion is pending.
+  rows_.clear();
+  rows_.shrink_to_fit();
+  table_->clearContents();
+  table_->setRowCount(0);
+  vault_.clear();
+  masterPassword_.clear();
+
+  // 3. Hand back to the caller (main.cpp hides the window, disposes of it,
+  //    and shows the login dialog again).
+  emit vaultLocked();
+}
+
+bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
+  switch (event->type()) {
+    case QEvent::KeyPress:
+    case QEvent::KeyRelease:
+    case QEvent::MouseButtonPress:
+    case QEvent::MouseButtonRelease:
+    case QEvent::MouseButtonDblClick:
+    case QEvent::Wheel:
+    case QEvent::TouchBegin:
+    case QEvent::TouchUpdate:
+      noteActivity();
+      break;
+    case QEvent::MouseMove: {
+      // Only moves to a *new* position count: widgets can emit a stream of
+      // move events, and a mouse parked over the window must not keep the
+      // vault unlocked forever.
+      const auto* const move = static_cast<const QMouseEvent*>(event);
+      const QPoint pos = move->globalPosition().toPoint();
+      if (pos != lastMousePos_) {
+        lastMousePos_ = pos;
+        noteActivity();
+      }
+      break;
+    }
+    default:
+      break;
+  }
+  return QMainWindow::eventFilter(watched, event);
+}
+
+void MainWindow::showEvent(QShowEvent* event) {
+  QMainWindow::showEvent(event);
+  // Watch every window and child for keyboard/mouse input so the idle timer
+  // reflects real user activity (modal dialogs included). Idempotent: Qt
+  // ignores a duplicate install of the same filter.
+  QApplication::instance()->installEventFilter(this);
+  idleTimer_->start(kIdleLockMs);
+}
+
+void MainWindow::hideEvent(QHideEvent* event) {
+  QMainWindow::hideEvent(event);
+  // Stop tracking input before we vanish (this always precedes deletion, so
+  // the filter can never outlive the window it points back to).
+  if (auto* const app = QApplication::instance(); app != nullptr) {
+    app->removeEventFilter(this);
+  }
+  idleTimer_->stop();
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {
   // A window-manager close means "exit the application"; main.cpp handles the
   // rest. (Locking, by contrast, goes through vaultLocked() and does not fire
-  // a close event.)
+  // a close event.) Leaving must not strand a copied password on the system
+  // clipboard, so scrub it first.
+  clearCopiedPassword(/*notify=*/false);
   emit windowClosed();
   event->accept();
 }
